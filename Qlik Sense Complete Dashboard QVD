@@ -1,0 +1,201 @@
+[DSIGRP_DSI_SHOP_MATERIALS_IAL]:
+LOAD 
+	ORDER_NO, 
+	NEED_YEAR,
+    DATE_ENTERED,
+	num(left(PRIORITY_CATEGORY,2)) as prio_cat,
+	RAW_MATERIAL as RPART_NO,
+     PLANNER_BUYER,
+     DESCRIPTION,
+     ACCOUNTING_GROUP,
+	ROUND(QTY_REQUIRED,0.01) as QTY_REQUIRED,
+    Round(RM_STOCK,0.01) as RM_STOCK,
+    Round(WIP,0.01) as WIP,
+    Round(WIP2,0.01) as WIP2,
+    Round(QTY_IN_TRANSIT,0.01) as QTY_IN_TRANSIT,
+    Round(BACKORDERS,0.01) as BACKORDERS,
+    (RM_STOCK+WIP+WIP2+QTY_IN_TRANSIT) as ON_HAND_QTY,
+    ROUND((RM_STOCK+WIP+WIP2+QTY_IN_TRANSIT)-BACKORDERS) as Free_Bal,
+    ROUND(((RM_STOCK+WIP+WIP2+QTY_IN_TRANSIT)-BACKORDERS)-QTY_REQUIRED,0.01) as Available,
+    PART_NO,
+    REMAINING_SHOPORD_QTY
+    
+//     if(ROUND(((RM_STOCK+WIP+WIP2+QTY_IN_TRANSIT)-BACKORDERS)-QTY_REQUIRED,0.01)<0,
+//     	ROUND(((RM_STOCK+WIP+WIP2+QTY_IN_TRANSIT)-BACKORDERS)-QTY_REQUIRED,0.01)) as Available
+    //Aggr(distinct count({<Available={"<0"}>}RPART_NO),ORDER_NO)
+    ;
+
+
+SELECT
+    			 "A"."ORDER_NO",
+                  "IP"."PLANNER_BUYER",
+                 "A". "RAW_MATERIAL",
+                 "A"."PART_NO",
+                 "IP"."DESCRIPTION",
+                 "IP"."ACCOUNTING_GROUP",
+                 "A"."QTY_REQUIRED",
+                 "A"."REMAINING_SHOPORD_QTY",
+                 "A"."DATE_ENTERED",
+                 "A"."NEED_YEAR",
+                 "A"."PRIORITY_CATEGORY",
+                 nvl("A"."BACKORDERS",0) as "BACKORDERS",
+                 NVL(SUM("INV"."QTY_IN_TRANSIT"),0) AS "QTY_IN_TRANSIT",
+                NVL(SUM(CASE WHEN "INV"."LOCATION_TYPE" LIKE 'Picking%' AND "INV"."LOCATION_NO" LIKE  'RM%' THEN "INV"."QTY_ONHAND" ELSE 0 END),0) AS "RM_STOCK",
+                NVL(SUM(CASE WHEN "INV"."LOCATION_TYPE" LIKE 'Picking%' AND ("INV"."LOCATION_NO" LIKE 'SP-%' OR "INV"."LOCATION_NO" LIKE 'SS-ADM' OR "INV"."LOCATION_NO" LIKE 'STA-MP'OR "INV"."LOCATION_NO" LIKE 'STA-SP' OR "INV"."LOCATION_NO" LIKE 'KP-SUBST' 
+                OR "INV"."LOCATION_NO" LIKE 'MP-%') THEN "INV"."QTY_ONHAND" ELSE 0 END),0) AS "WIP",
+                NVL(SUM(CASE WHEN "INV"."LOCATION_TYPE" LIKE 'Production%' THEN "INV"."QTY_ONHAND" ELSE 0 END),0) AS "WIP2"
+FROM
+    (
+        SELECT
+            "ORDER_NO",
+            "PRIORITY_CATEGORY",
+            "RAW_MATERIAL",
+            "PART_NO",
+            "QTY_REQUIRED",
+            ("REVISED_QTY_DUE"-"QTY_COMPLETE"-"OPERATION_SCRAPPED") as REMAINING_SHOPORD_QTY,
+			"DATE_ENTERED",
+            EXTRACT(YEAR FROM "NEED_DATE") AS "NEED_YEAR",
+            SUM("QTY_REQUIRED")
+            OVER(PARTITION BY "RAW_MATERIAL"
+                 ORDER BY
+                     EXTRACT(YEAR FROM "NEED_DATE"),
+                     "PRIORITY_CATEGORY",
+                     "ORDER_NO"
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            )                            AS "BACKORDERS"
+        FROM
+            "IFSAPP"."DSIGRP_DSI_SHOP_MATERIALS_IAL"
+        WHERE
+            "CONTRACT" LIKE 'DSI1'
+            AND "QTY_REQUIRED" > 0
+            //AND "ORDER_NO" NOT LIKE 'B%'
+            AND "STATE" <> 'Closed'
+            AND "STATE" <> 'Cancelled'
+            AND "STATE" <> 'Parked'
+            //AND "PRIORITY_CATEGORY" IS NOT NULL
+            AND "RAW_MATERIAL" LIKE 'I%' OR  "RAW_MATERIAL" like 'L%' OR  "RAW_MATERIAL" like 'R%'
+            
+    ) "A"
+LEFT  JOIN "IFSAPP"."INVENTORY_PART_IN_STOCK_UIV" "INV"
+ON "A"."RAW_MATERIAL"="INV"."PART_NO"
+ LEFT JOIN "IFSAPP"."INVENTORY_PART" "IP" 
+ ON "A"."RAW_MATERIAL"="IP"."PART_NO"
+
+WHERE "IP"."CONTRACT" LIKE 'DSI1' 
+GROUP BY 		 "A"."ORDER_NO",
+ 				 "IP"."PLANNER_BUYER",
+                 "IP"."ACCOUNTING_GROUP",
+                  "IP"."DESCRIPTION",
+                  "A"."DATE_ENTERED",
+                 "A"."NEED_YEAR",
+                 "A". "RAW_MATERIAL",
+                 "A"."QTY_REQUIRED",
+                 "A"."PRIORITY_CATEGORY",
+                 "A"."BACKORDERS",
+                  "A"."PART_NO",
+				  "A"."REMAINING_SHOPORD_QTY"
+    
+   
+ORDER BY
+    "A"."NEED_YEAR",
+    "A"."PRIORITY_CATEGORY",
+    "A"."ORDER_NO" ASC;
+
+
+[DSIGRP_DSI_SHOP_MATERIALS_IAL_TOT]:
+LOAD 
+	RAW_MATERIAL as RPART_NO,
+	ROUND(TOTAL_QTY_REQ,0.01) as TOTAL_QTY_REQ,
+    ;
+    
+SELECT  "RAW_MATERIAL",
+		SUM("QTY_REQUIRED") as "TOTAL_QTY_REQ"
+        
+FROM  "IFSAPP"."DSIGRP_DSI_SHOP_MATERIALS_IAL"
+GROUP BY "RAW_MATERIAL";
+
+
+
+[PURCHASE_RECEIPT_STAT_UIV_CFV]:
+	
+    
+LOAD PO,
+    PART_NO as RPART_NO, 
+	UNIT_MEAS, 
+	BUY_UNIT_PRICE, 
+	ORDER_DATE, 
+    QTY_ARRIVED,
+	VENDOR_NAME, 
+	REAL_ARRIVAL_DATE;
+
+
+select 			"PO",
+  				"PART_NO",
+                "UNIT_MEAS",
+                "BUY_UNIT_PRICE",
+                "ORDER_DATE",
+                "QTY_ARRIVED",
+                "VENDOR_NAME",
+                "REAL_ARRIVAL_DATE"
+  from (select
+  				"ORDER_NO" AS "PO",
+                "PART_NO",
+                "UNIT_MEAS",
+                "BUY_UNIT_PRICE",
+                "ORDER_DATE",
+                "QTY_ARRIVED",
+                "VENDOR_NAME",
+                "REAL_ARRIVAL_DATE",
+  rank() over (partition by "PART_NO" order by "REAL_ARRIVAL_DATE" desc) "r"
+  from  "IFSAPP"."PURCHASE_RECEIPT_STAT_UIV_CFV"
+)
+where "r" = 1;
+
+
+
+
+[PURCHASE_ORDER]:
+LOAD PO,
+	PART_NO AS RPART_NO, 
+	BUY_QTY_DUE,
+    STATE;
+
+select  "A"."ORDER_NO" AS "PO",
+		"A"."PART_NO" ,
+		SUM("A"."BUY_QTY_DUE") AS "BUY_QTY_DUE",
+        "A"."STATE"
+        
+FROM "IFSAPP"."PURCHASE_ORDER" "P" LEFT JOIN 
+"IFSAPP"."PURCHASE_ORDER_LINE_ALL" "A" ON "P"."ORDER_NO"="A"."ORDER_NO"
+WHERE "P"."STATE" <> 'Closed' and "P"."STATE" <> 'Cancelled' and "P"."STATE" <> 'Received'
+GROUP BY "A"."ORDER_NO","A"."PART_NO","A"."STATE";
+
+
+[PURCHASE_RECEIPT_STAT_UIV_CFV]:
+LOAD PART_NO as RPART_NO, 
+	UNIT_MEAS, 
+	BUY_UNIT_PRICE, 
+	ORDER_DATE, 
+	VENDOR_NAME, 
+	REAL_ARRIVAL_DATE;
+
+
+  select 		"PART_NO",
+                "UNIT_MEAS",
+                "BUY_UNIT_PRICE",
+                "ORDER_DATE",
+                "VENDOR_NAME",
+                "REAL_ARRIVAL_DATE"
+  from (select
+                "PART_NO",
+                "UNIT_MEAS",
+                "BUY_UNIT_PRICE",
+                "ORDER_DATE",
+                "VENDOR_NAME",
+                "REAL_ARRIVAL_DATE",
+  rank() over (partition by "PART_NO" order by "REAL_ARRIVAL_DATE" desc) "r"
+  from  "IFSAPP"."PURCHASE_RECEIPT_STAT_UIV_CFV"
+  WHERE  "PART_NO" like 'I%'
+)
+where "r" = 1;
+
